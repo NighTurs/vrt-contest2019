@@ -23,6 +23,8 @@ int tour[MAX_JOBS + EXTRA_BASES];
 
 void greedyTour();
 
+void removeUnprofitableCycles();
+
 int evaluateTour();
 
 void outputTour();
@@ -59,6 +61,7 @@ int main(int argc,  char** argv) {
     n = n + EXTRA_BASES;
 
     greedyTour();
+    removeUnprofitableCycles();
     if (argc > 1) {
         if (argv[1][0] == '1') {
             cout << evaluateTour() << endl;    
@@ -110,6 +113,30 @@ void greedyTour() {
         cur = minJob;
         visited[minJob->idx] = true;
     }
+}
+
+void removeUnprofitableCycles() {
+    int newTour[MAX_JOBS + EXTRA_BASES] {0};
+    int cycleCost = 0;
+    int curT = 0, outT;
+    int lastBaseIdx = 0;
+    int h = 0;
+    for (int i = 0; i < n; i++) {
+        cycleCost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
+        curT = outT;
+        if (!jobs[tour[i]].isBase()) {
+            cycleCost += jobs[tour[i]].d * jobs[tour[i]].p * (jobs[tour[i]].p + 5);
+        }
+        if (jobs[tour[i]].isBase()) {
+            if (cycleCost < 0) {
+                h = lastBaseIdx + 1;
+            }
+            lastBaseIdx = h;
+            cycleCost = 0;
+        }
+        newTour[h++] = tour[i];
+    }
+    copy(begin(newTour), end(newTour), begin(tour));
 }
 
 int evaluateTour() {
