@@ -14,6 +14,9 @@ typedef struct {
     bool isBase() {
         return d == 0;
     }
+    int profit() {
+        return d * p * (p + 5);
+    }
 } Job;
 
 
@@ -125,7 +128,7 @@ void removeUnprofitableCycles() {
         cycleCost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
         curT = outT;
         if (!jobs[tour[i]].isBase()) {
-            cycleCost += jobs[tour[i]].d * jobs[tour[i]].p * (jobs[tour[i]].p + 5);
+            cycleCost += jobs[tour[i]].profit();
         }
         if (jobs[tour[i]].isBase()) {
             if (cycleCost < 0) {
@@ -146,7 +149,7 @@ int evaluateTour() {
         cost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
         curT = outT;
         if (!jobs[tour[i]].isBase()) {
-            cost += jobs[tour[i]].d * jobs[tour[i]].p * (jobs[tour[i]].p + 5);
+            cost += jobs[tour[i]].profit();
         }
     }
     return cost;
@@ -231,7 +234,7 @@ void outputAnalytics() {
         }
         curT = outT;
         if (!b->isBase()) {
-            jobProfit[b->idx] = b->d * b->p * (b->p + 5);
+            jobProfit[b->idx] = b->profit();
         }
     }
     for (int i = 0; i < n; i++) {
@@ -239,7 +242,8 @@ void outputAnalytics() {
             continue;
         }
         cout << i << ',' << jobs[i].d << ',' << jobs[i].p << ',' << jobProfit[i] << ',';
-        cout << jobExpenses[i] << ',' <<  ctByBase[jobBaseIdx[i]] << ',' << baseReturnCost[jobBaseIdx[i]] << endl;
+        cout << jobExpenses[i] << ',' <<  ctByBase[jobBaseIdx[i]] << ',';
+        cout << baseReturnCost[jobBaseIdx[i]] << endl;
     }
 }
 
