@@ -1,5 +1,8 @@
 tests/
 a1_tests/
 .vscode/
+.ipynb_checkpoints/
 main
 sample.in
+analytics.csv
+nohup.out

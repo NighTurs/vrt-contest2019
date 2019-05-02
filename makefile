@@ -3,3 +3,6 @@ main : main.cpp
 
 benchmark: main
 	./benchmark.sh | awk '{ sum += $$1 } END { print sum }'
+
+analytics: main
+	./analytics.sh > analytics.csv

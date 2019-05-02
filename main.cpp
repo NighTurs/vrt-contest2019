@@ -27,6 +27,8 @@ int evaluateTour();
 
 void outputTour();
 
+void outputAnalytics();
+
 int dist(Job &a, Job &b, int curT, int &outT);
 
 int l1Dist(Job &a, Job &b);
@@ -57,8 +59,14 @@ int main(int argc,  char** argv) {
     n = n + EXTRA_BASES;
 
     greedyTour();
-    if (argc > 1 && argv[1][0] == '1') {
-        cout << evaluateTour() << endl;    
+    if (argc > 1) {
+        if (argv[1][0] == '1') {
+            cout << evaluateTour() << endl;    
+        } else if (argv[1][0] == '0') {
+            outputTour();
+        } else if (argv[1][0] == '2') {
+            outputAnalytics();
+        }
     } else {
         outputTour();
     }
@@ -164,6 +172,47 @@ void outputTour() {
         }
         shouldEnd = true;
         i++;
+    }
+}
+
+void outputAnalytics() {
+
+    int ctByBase[n] {0};
+    int baseReturnCost[n] {0}; 
+    int jobBaseIdx[n] {0};
+    int jobProfit[n] {0};
+    int jobExpenses[n] {0};
+
+    int cost = 0;
+    int curT = 0, outT;
+    int lastBaseIdx = 0;
+
+    for (int i = 1; i < n; i++) {
+        Job *a = &jobs[tour[i - 1]];
+        Job *b = &jobs[tour[i]];
+
+        jobExpenses[b->idx] = dist(*a, *b, curT, outT);
+        if (a->isBase()) {
+            jobExpenses[b->idx] -= b->p * HIRE_COST;
+        }
+        jobBaseIdx[b->idx] = lastBaseIdx;
+        if (b->isBase()) {
+            baseReturnCost[lastBaseIdx] = jobExpenses[b->idx];
+            lastBaseIdx = b->idx;
+        } else {
+            ctByBase[lastBaseIdx]++;
+        }
+        curT = outT;
+        if (!b->isBase()) {
+            jobProfit[b->idx] = b->d * b->p * (b->p + 5);
+        }
+    }
+    for (int i = 0; i < n; i++) {
+        if (jobs[i].isBase()) {
+            continue;
+        }
+        cout << i << ',' << jobs[i].d << ',' << jobs[i].p << ',' << jobProfit[i] << ',';
+        cout << jobExpenses[i] << ',' <<  ctByBase[jobBaseIdx[i]] << ',' << baseReturnCost[jobBaseIdx[i]] << endl;
     }
 }
 

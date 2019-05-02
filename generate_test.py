@@ -1,14 +1,18 @@
 import random
 import argparse
 
+
 def rndAxis():
     return random.randint(0, 100)
+
 
 def rndD():
     return random.randint(5, 30)
 
+
 def rndP():
     return random.randint(1, 7)
+
 
 def rndLR():
     l = random.randint(200, 800 - 60)
@@ -26,7 +30,7 @@ def main(seed):
     for i in range(n):
         l, r = rndLR()
         print(rndAxis(), rndAxis(), rndD(), rndP(), l, r)
-        
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process some integers.')
