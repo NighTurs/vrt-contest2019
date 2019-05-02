@@ -3,7 +3,7 @@
 using namespace std;
 
 #define MAX_JOBS 2000
-#define EXTRA_BASES 100
+#define EXTRA_BASES 200
 #define HIRE_COST 240
 #define IMPOSSIBLE_DIST -1
 
@@ -23,6 +23,8 @@ int tour[MAX_JOBS + EXTRA_BASES];
 
 void greedyTour();
 
+int evaluateTour();
+
 void outputTour();
 
 int dist(Job &a, Job &b, int curT, int &outT);
@@ -31,7 +33,7 @@ int l1Dist(Job &a, Job &b);
 
 int main(int argc,  char** argv) {
 
-    ifstream cin(argv[1]);
+    ifstream cin(argv[2]);
     ios_base::sync_with_stdio(false);
     std::cin.tie(0);
     
@@ -55,7 +57,11 @@ int main(int argc,  char** argv) {
     n = n + EXTRA_BASES;
 
     greedyTour();
-    outputTour();
+    if (argc > 1 && argv[1][0] == '1') {
+        cout << evaluateTour() << endl;    
+    } else {
+        outputTour();
+    }
 }
 
 void greedyTour() {
@@ -96,6 +102,19 @@ void greedyTour() {
         cur = minJob;
         visited[minJob->idx] = true;
     }
+}
+
+int evaluateTour() {
+    int cost = 0;
+    int curT = 0, outT;
+    for (int i = 1; i < n; i++) {
+        cost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
+        curT = outT;
+        if (!jobs[tour[i]].isBase()) {
+            cost += jobs[tour[i]].d * jobs[tour[i]].p * (jobs[tour[i]].p + 5);
+        }
+    }
+    return cost;
 }
 
 void outputTour() {
@@ -155,13 +174,13 @@ int dist(Job &a, Job &b, int curT, int &outT) {
             outT = 0;
             return 0;
         } else {
-            outT = max(b.l - l1, 0) + b.d + l1;
-            return (outT + HIRE_COST) * b.p;
+            outT = b.l + b.d;
+            return (l1 + b.d + HIRE_COST) * b.p;
         }
     } else {
         if (b.isBase()) {
             outT = 0;
-            return l1 * b.p;
+            return l1 * a.p;
         } else {
             outT = max(curT + l1, b.l) + b.d;
             if (outT > b.r) {
