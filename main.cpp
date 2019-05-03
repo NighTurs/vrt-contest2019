@@ -3,32 +3,52 @@
 using namespace std;
 
 #define MAX_JOBS 2000
-#define EXTRA_BASES 200
 #define HIRE_COST 240
 #define IMPOSSIBLE_DIST -1
+#define MAX_SHIFTS 40
+#define MAX_JOBS_PER_SHIFT 50
 
-typedef struct {
+struct Job {
     int idx;
     int x, y, d, p, l, r;
+    bool assigned = false;
+    int shiftIdx;
+    int shiftPos;
+    
+    Job* cur();
+    Job* from();
 
     bool isBase() {
         return d == 0;
     }
+
     int profit() {
         return d * p * (p + 5);
     }
-} Job;
+};
 
+struct Work {
+    int jobIdx;
+    int startT;
+};
 
 int n;
-Job jobs[MAX_JOBS + EXTRA_BASES];
-int tour[MAX_JOBS + EXTRA_BASES];
+Job base;
+Job jobs[MAX_JOBS];
+int shifts[MAX_SHIFTS][MAX_JOBS_PER_SHIFT];
+int nWorkers = 0;
+Work workers[MAX_SHIFTS * 7 * 7][MAX_JOBS_PER_SHIFT];
 
-void greedyTour();
+#define SHIFT_SIZE(x) (shifts[x][0])
+#define WORKER_SIZE(x) (workers[x][0].jobIdx)
 
-void removeUnprofitableCycles();
+void greedyShifts(int p);
 
-int evaluateTour();
+void shiftsToWorkers(int p);
+
+void removeUnprofitableCycles(int p);
+
+int evaluate();
 
 void outputTour();
 
@@ -40,11 +60,14 @@ int l1Dist(Job &a, Job &b);
 
 int main(int argc,  char** argv) {
 
-    ifstream cin(argv[2]);
+    // ifstream cin(argv[2]);
     ios_base::sync_with_stdio(false);
     std::cin.tie(0);
     
     cin >> n;
+    n--;
+
+    cin >> base.x >> base.y >> base.d >> base.p >> base.l >> base.r;
 
     for (int i = 0; i < n; i++) {
         Job* j = &jobs[i];
@@ -52,198 +75,150 @@ int main(int argc,  char** argv) {
         cin >> j->x >> j->y >> j->d >> j->p >> j->l >> j->r;
     }
 
-    // add extra bases
-    for (int i = n; i < n + EXTRA_BASES; i++) {
-        Job* j = &jobs[i];
-        j->idx = i; 
-        j->x = jobs[0].x;
-        j->y = jobs[0].y;
-        j->d = 0;
+    for (int p = 7; p >= 1; p--) {
+        for (int i = 0; i < MAX_SHIFTS; i++) {
+            shifts[i][0] = 0;
+        }
+        greedyShifts(p);
+        removeUnprofitableCycles(p);
+        shiftsToWorkers(p);
     }
-
-    n = n + EXTRA_BASES;
-
-    greedyTour();
-    removeUnprofitableCycles();
     if (argc > 1) {
         if (argv[1][0] == '1') {
-            cout << evaluateTour() << endl;    
+            cout << evaluate() << endl;    
         } else if (argv[1][0] == '0') {
             outputTour();
-        } else if (argv[1][0] == '2') {
-            outputAnalytics();
         }
     } else {
         outputTour();
     }
 }
 
-void greedyTour() {
-    bool visited[n] = {false};
-    Job *cur = &jobs[0];
-    visited[0] = true;
-    tour[0] = 0;
-    int tourIdx = 1;
+void greedyShifts(int p) {
+    bool visited[n] {false};
+    Job *prev = &base;
+    int shiftIdx = 0;
+    int shiftPos = 1;
     int curT = 0, outT = 0;
 
     while (true) {
         int minT = __INT_MAX__;
         Job *minJob = NULL;
-        for (int i = 0; i < n - EXTRA_BASES; i++) {
-            if (visited[i] || (!cur->isBase() && cur->p != jobs[i].p)) {
+        for (int i = 0; i < n; i++) {
+            Job *job = &jobs[i];
+            if (job->assigned || visited[i] || job->p != p) {
                 continue;
             }
-            if (dist(*cur, jobs[i], curT, outT) != IMPOSSIBLE_DIST && outT < minT) {
+            if (dist(*prev, jobs[i], curT, outT) != IMPOSSIBLE_DIST && outT < minT) {
                 minT = outT;
                 minJob = &jobs[i];
             }
         }
-        if (minT == __INT_MAX__) {
-            for (int i = n - EXTRA_BASES; i < n; i++) {
-                if (visited[i]) {
-                    continue;
-                }
-                minJob = &jobs[i];
-                minT = 0;
-                break;
-            }
-        }
-        if (minT == __INT_MAX__) {
+        if (minT == __INT_MAX__ && prev == &base) {
             break;
         }
-        tour[tourIdx++] = minJob->idx;
+        if (minT == __INT_MAX__) {
+            shiftIdx++;
+            shiftPos = 1;
+            prev = &base;
+            curT = 0;
+            continue;
+        }
+        shifts[shiftIdx][shiftPos] = minJob->idx;
+        shifts[shiftIdx][0] = shiftPos;
+        minJob->shiftIdx = shiftIdx;
+        minJob->shiftPos = shiftPos;
+        shiftPos++;
         curT = minT;
-        cur = minJob;
+        prev = minJob;
         visited[minJob->idx] = true;
     }
 }
 
-void removeUnprofitableCycles() {
-    int newTour[MAX_JOBS + EXTRA_BASES] {0};
-    int cycleCost = 0;
-    int curT = 0, outT;
-    int lastBaseIdx = 0;
-    int h = 0;
-    for (int i = 0; i < n; i++) {
-        cycleCost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
-        curT = outT;
-        if (!jobs[tour[i]].isBase()) {
-            cycleCost += jobs[tour[i]].profit();
+void shiftsToWorkers(int p) {
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        if (SHIFT_SIZE(i) == 0) {
+            continue;
         }
-        if (jobs[tour[i]].isBase()) {
-            if (cycleCost < 0) {
-                h = lastBaseIdx + 1;
+        for (int j = 0; j < p; j++) {
+            int curT, outT;
+            dist(base, jobs[shifts[i][1]], 0, curT);
+            workers[nWorkers][1].jobIdx = shifts[i][1];
+            workers[nWorkers][1].startT = curT - jobs[shifts[i][1]].d;
+            int workerPos = 1;
+
+            for (int h = 2; h <= SHIFT_SIZE(i); h++) {
+                workerPos++;
+                workers[nWorkers][workerPos].jobIdx = shifts[i][h];
+                dist(jobs[shifts[i][h - 1]], jobs[shifts[i][h]], curT, outT);
+                curT = outT;
+                workers[nWorkers][workerPos].startT = curT - jobs[shifts[i][h]].d;
             }
-            lastBaseIdx = h;
-            cycleCost = 0;
+            workers[nWorkers][0].jobIdx = workerPos;
+            nWorkers++;
         }
-        newTour[h++] = tour[i];
     }
-    copy(begin(newTour), end(newTour), begin(tour));
 }
 
-int evaluateTour() {
+void removeUnprofitableCycles(int p) {
+      for (int i = 0; i < MAX_SHIFTS; i++) {
+        if (SHIFT_SIZE(i) == 0) {
+            continue;
+        }
+        
+        int curT = 0, outT;
+        int profit = 0;
+        Job *prev = &base;
+        for (int h = 1; h <= SHIFT_SIZE(i); h++) {
+            Job *cur = &jobs[shifts[i][h]];
+            profit -= dist(*prev, *cur, curT, outT);
+            curT = outT;
+            profit += cur->profit();
+            prev = cur;
+        }
+        profit -= dist(*prev, base, curT, outT);
+        if (profit < 0) {
+            shifts[i][0] = 0;
+        }
+    }
+}
+
+int evaluate() {
+    bool visited[n] {false};
     int cost = 0;
-    int curT = 0, outT;
-    for (int i = 1; i < n; i++) {
-        cost -= dist(jobs[tour[i - 1]], jobs[tour[i]], curT, outT);
-        curT = outT;
-        if (!jobs[tour[i]].isBase()) {
-            cost += jobs[tour[i]].profit();
+    for (int i = 0; i < nWorkers; i++) {
+        cost -= HIRE_COST;
+        int startT = workers[i][1].startT - l1Dist(base, jobs[workers[i][1].jobIdx]);
+        int sz = WORKER_SIZE(i);
+        int endT = workers[i][sz].startT + l1Dist(base, jobs[workers[i][sz].jobIdx]) + jobs[workers[i][sz].jobIdx].d;
+        cost -= endT - startT;
+        for (int h = 1; h <= sz; h++) {
+            Job *job = &jobs[workers[i][h].jobIdx];
+            if (visited[job->idx]) {
+                continue;
+            }
+            visited[job->idx] = true;
+            cost += job->profit();
         }
     }
     return cost;
 }
 
 void outputTour() {
-    int i = 0;
-    int lastBaseIdx = 0;
-    int curT = 0;
-    int loop = 0;
-    bool shouldEnd = false;
-    while (i < n) {
-        Job *cur = &jobs[tour[i]];
-        Job *prev = i == 0 ? NULL : &jobs[tour[i - 1]];
-        Job *next = i == n - 1 ? NULL : &jobs[tour[i + 1]];
-        
-        if (cur->isBase()) {
-            if (shouldEnd) {
-                int l1 = l1Dist(*prev, *cur);
-                cout << "arrive " << curT + l1 << " " << 1 << endl; 
-                cout << "end" << endl;
-                loop--;
-                if (loop > 0) {
-                    i = lastBaseIdx;
-                    shouldEnd = false;
-                    continue;
-                }
-            }
-            if (next == NULL || next->isBase()) {
-                i++;
-                shouldEnd = false;
-                continue;
-            }
-            int outT;
-            int l1 = l1Dist(*cur, *next);
-            dist(*cur, *next, 0, outT);
-            curT = outT - next->d - l1;
-            cout << "start " << curT << " " << 1 << endl;
-            if (loop == 0) {
-                loop = next->p;
-                lastBaseIdx = i;
-            }
-        } else {
-            int l1 = l1Dist(*prev, *cur);
-            cout << "arrive " << curT + l1 << " " << cur->idx + 1 << endl;
-            int outT;
-            dist(*prev, *cur, curT, outT);
-            curT = outT;
-            cout << "work " << curT - cur->d << " " << curT << " " << cur->idx + 1 << endl;
-        }
-        shouldEnd = true;
-        i++;
-    }
-}
+    for (int i = 0; i < nWorkers; i++) {
+        int startT = workers[i][1].startT - l1Dist(base, jobs[workers[i][1].jobIdx]);
+        int sz = WORKER_SIZE(i);
+        int endT = workers[i][sz].startT + l1Dist(base, jobs[workers[i][sz].jobIdx]) + jobs[workers[i][sz].jobIdx].d;
+        cout << "start " << startT << " " << 1 << endl;
 
-void outputAnalytics() {
-
-    int ctByBase[n] {0};
-    int baseReturnCost[n] {0}; 
-    int jobBaseIdx[n] {0};
-    int jobProfit[n] {0};
-    int jobExpenses[n] {0};
-
-    int cost = 0;
-    int curT = 0, outT;
-    int lastBaseIdx = 0;
-
-    for (int i = 1; i < n; i++) {
-        Job *a = &jobs[tour[i - 1]];
-        Job *b = &jobs[tour[i]];
-
-        jobExpenses[b->idx] = dist(*a, *b, curT, outT);
-        if (a->isBase()) {
-            jobExpenses[b->idx] -= b->p * HIRE_COST;
+        for (int h = 1; h <= sz; h++) {
+            Job *job = &jobs[workers[i][h].jobIdx];
+            cout << "arrive " << workers[i][h].startT << " " << job->idx + 2 << endl;
+            cout << "work " << workers[i][h].startT << " " << workers[i][h].startT + job->d;
+            cout << " " << job->idx + 2 << endl;
         }
-        jobBaseIdx[b->idx] = lastBaseIdx;
-        if (b->isBase()) {
-            baseReturnCost[lastBaseIdx] = jobExpenses[b->idx];
-            lastBaseIdx = b->idx;
-        } else {
-            ctByBase[lastBaseIdx]++;
-        }
-        curT = outT;
-        if (!b->isBase()) {
-            jobProfit[b->idx] = b->profit();
-        }
-    }
-    for (int i = 0; i < n; i++) {
-        if (jobs[i].isBase()) {
-            continue;
-        }
-        cout << i << ',' << jobs[i].d << ',' << jobs[i].p << ',' << jobProfit[i] << ',';
-        cout << jobExpenses[i] << ',' <<  ctByBase[jobBaseIdx[i]] << ',';
-        cout << baseReturnCost[jobBaseIdx[i]] << endl;
+        cout << "arrive " << endT << " " << 1 << endl; 
+        cout << "end" << endl;
     }
 }
 
@@ -273,4 +248,20 @@ int dist(Job &a, Job &b, int curT, int &outT) {
 
 int l1Dist(Job &a, Job &b) {
     return abs(a.x - b.x) + abs(a.y - b.y);
+}
+
+Job* Job::cur() {
+    if (shiftPos + 1 > SHIFT_SIZE(shiftIdx)) {
+        return &jobs[shifts[shiftIdx][1]];
+    } else {
+        return &jobs[shifts[shiftIdx][shiftPos + 1]];
+    }
+}
+
+Job* Job::from() {
+    if (shiftPos == 1) {
+        return &jobs[shifts[shiftIdx][SHIFT_SIZE(shiftIdx)]];
+    } else {
+        return &jobs[shifts[shiftIdx][shiftPos - 1]];
+    }
 }
