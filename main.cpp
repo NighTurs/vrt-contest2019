@@ -44,6 +44,10 @@ Work workers[MAX_SHIFTS * 7 * 7][MAX_JOBS_PER_SHIFT];
 
 void greedyShifts(int p);
 
+void shiftsToWorkersUsingFreeSpace(int p);
+
+void useFreeSpace(int workerSt, int workerEnd, int timeLimit, Job &to);
+
 void shiftsToWorkers(int p);
 
 void removeUnprofitableCycles(int p);
@@ -60,7 +64,7 @@ int l1Dist(Job &a, Job &b);
 
 int main(int argc,  char** argv) {
 
-    // ifstream cin(argv[2]);
+    ifstream cin(argv[2]);
     ios_base::sync_with_stdio(false);
     std::cin.tie(0);
     
@@ -81,7 +85,8 @@ int main(int argc,  char** argv) {
         }
         greedyShifts(p);
         removeUnprofitableCycles(p);
-        shiftsToWorkers(p);
+        // shiftsToWorkers(p);
+        shiftsToWorkersUsingFreeSpace(p);
     }
     if (argc > 1) {
         if (argv[1][0] == '1') {
@@ -95,7 +100,6 @@ int main(int argc,  char** argv) {
 }
 
 void greedyShifts(int p) {
-    bool visited[n] {false};
     Job *prev = &base;
     int shiftIdx = 0;
     int shiftPos = 1;
@@ -106,7 +110,7 @@ void greedyShifts(int p) {
         Job *minJob = NULL;
         for (int i = 0; i < n; i++) {
             Job *job = &jobs[i];
-            if (job->assigned || visited[i] || job->p != p) {
+            if (job->assigned || job->p != p) {
                 continue;
             }
             if (dist(*prev, jobs[i], curT, outT) != IMPOSSIBLE_DIST && outT < minT) {
@@ -128,10 +132,98 @@ void greedyShifts(int p) {
         shifts[shiftIdx][0] = shiftPos;
         minJob->shiftIdx = shiftIdx;
         minJob->shiftPos = shiftPos;
+        minJob->assigned = true;
         shiftPos++;
         curT = minT;
         prev = minJob;
-        visited[minJob->idx] = true;
+    }
+}
+
+void shiftsToWorkersUsingFreeSpace(int p) {
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        if (SHIFT_SIZE(i) == 0) {
+            continue;
+        }
+        int curT, outT;
+        int workerSt = nWorkers;
+        int workerEnd = nWorkers + p - 1;
+        dist(base, jobs[shifts[i][1]], 0, curT);
+        for (int j = workerSt; j <= workerEnd; j++) {
+            workers[j][0].jobIdx = 1;
+            workers[j][1].jobIdx = shifts[i][1];
+            workers[j][1].startT = curT - jobs[shifts[i][1]].d;
+        }
+
+        for (int h = 2; h <= SHIFT_SIZE(i); h++) {
+            dist(jobs[shifts[i][h - 1]], jobs[shifts[i][h]], curT, outT);
+            curT = outT;
+            useFreeSpace(workerSt, workerEnd, curT - jobs[shifts[i][h]].d, jobs[shifts[i][h]]);
+            for (int j = workerSt; j <= workerEnd; j++) {
+                workers[j][0].jobIdx++;
+                workers[j][WORKER_SIZE(j)].jobIdx = shifts[i][h];
+                workers[j][WORKER_SIZE(j)].startT = curT - jobs[shifts[i][h]].d;
+            }
+        }
+        useFreeSpace(workerSt, workerEnd, __INT_MAX__ - 1, base);
+        nWorkers += p;
+    }
+}
+
+void useFreeSpace(int workerSt, int workerEnd, int timeLimit, Job &to) {
+    int nW = workerEnd - workerSt + 1;
+    int workerArriveT[nW];
+    int minArriveT[nW];
+    int tmp[nW];
+    while (true) {
+        int maxP = 0;
+        int minT = __INT_MAX__;
+        Job *minJob = NULL;
+        for (int i = 0; i < n; i++) {
+            if (jobs[i].assigned || jobs[i].p > nW) {
+                continue;
+            }
+            int outT;
+            int count = 0;
+            for (int h = workerSt; h <= workerEnd; h++) {
+                Work *work = &workers[h][WORKER_SIZE(h)];
+                int startT = work->startT + jobs[work->jobIdx].d;
+                int d = dist(jobs[work->jobIdx], jobs[i], startT, outT);
+                if (d == IMPOSSIBLE_DIST) {
+                    workerArriveT[h - workerSt] = __INT_MAX__;
+                    continue;
+                }
+                workerArriveT[h - workerSt] = outT + l1Dist(jobs[i], to);
+                if (workerArriveT[h - workerSt] <= timeLimit) {
+                    count++;
+                }
+            }
+            if (count < jobs[i].p) {
+                continue;
+            }
+            memcpy(tmp, workerArriveT, sizeof(int) * nW);
+            sort(tmp, tmp + nW);
+            int earliest = tmp[jobs[i].p - 1];
+            if (earliest < minT) {
+                minT = earliest;
+                minJob = &jobs[i];
+                memcpy(minArriveT, workerArriveT, sizeof(int) * nW);
+            }
+        }
+        if (minT <= timeLimit) {
+            int toTake = minJob->p;
+            minJob->assigned = true;
+            for (int h = workerSt; h <= workerEnd; h++) {
+                if (minArriveT[h - workerSt] > minT || toTake == 0) {
+                    continue;
+                }
+                workers[h][0].jobIdx++;
+                workers[h][WORKER_SIZE(h)].jobIdx = minJob->idx;
+                workers[h][WORKER_SIZE(h)].startT = minT - l1Dist(*minJob, to) - minJob->d;
+                toTake--;
+            }
+        } else {
+            break;
+        }
     }
 }
 
