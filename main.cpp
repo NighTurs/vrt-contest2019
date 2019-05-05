@@ -7,17 +7,15 @@ using namespace std;
 #define IMPOSSIBLE_DIST -1
 #define MAX_SHIFTS 40
 #define MAX_JOBS_PER_SHIFT 50
+#define NUM_CANDIDATES 10
 
 struct Job {
     int idx;
     int x, y, d, p, l, r;
     bool assigned = false;
-    int shiftIdx;
-    int shiftPos;
-    
-    Job* cur();
-    Job* from();
-
+    int nCand;
+    Job* cand[NUM_CANDIDATES];
+        
     bool isBase() {
         return d == 0;
     }
@@ -41,6 +39,8 @@ Work workers[MAX_SHIFTS * 7 * 7][MAX_JOBS_PER_SHIFT];
 
 #define SHIFT_SIZE(x) (shifts[x][0])
 #define WORKER_SIZE(x) (workers[x][0].jobIdx)
+
+void candidates();
 
 void greedyShifts(int p);
 
@@ -78,6 +78,7 @@ int main(int argc,  char** argv) {
         j->idx = i;
         cin >> j->x >> j->y >> j->d >> j->p >> j->l >> j->r;
     }
+    candidates();
 
     for (int p = 7; p >= 1; p--) {
         for (int i = 0; i < MAX_SHIFTS; i++) {
@@ -96,6 +97,42 @@ int main(int argc,  char** argv) {
         }
     } else {
         outputTour();
+    }
+}
+
+void candidates() {
+    auto cmpFunc = [](pair<int, Job*> a, pair<int, Job*> b) { return a.first < b.first; };
+    priority_queue<pair<int, Job*>, vector<pair<int, Job*> >, decltype(cmpFunc)> q(cmpFunc);
+
+    for (int i = 0; i < n; i++) {
+        Job *job = &jobs[i];
+        job->nCand = 0;
+        for (int h = 0; h < n; h++) {
+            if (h == i || jobs[h].p != job->p) {
+                continue;
+            }
+            Job *to = &jobs[h];
+            int d = l1Dist(*job, *to);
+            d += min(max(to->l - (job->l + job->d + d), (job->l + job->d + to-> d + d) <= to->r ? 0 : __INT_MAX__ - d),
+                    max(job->l - (to->l + to->d + d), (to->l + job->d + to->d + d) <= job->r ? 0 : __INT_MAX__ - d));
+            
+            if (q.size() == NUM_CANDIDATES - 1) {
+                if (q.top().first > d) {
+                    q.push({d, to});    
+                    q.pop();
+                }
+            } else {
+                q.push({d, to});
+            }
+        }
+
+        job->nCand = q.size() + 1;
+        job->cand[q.size()] = job;
+        int j = q.size() - 1;
+        while (!q.empty()) {
+            job->cand[j--] = q.top().second;
+            q.pop();
+        }
     }
 }
 
@@ -130,8 +167,6 @@ void greedyShifts(int p) {
         }
         shifts[shiftIdx][shiftPos] = minJob->idx;
         shifts[shiftIdx][0] = shiftPos;
-        minJob->shiftIdx = shiftIdx;
-        minJob->shiftPos = shiftPos;
         minJob->assigned = true;
         shiftPos++;
         curT = minT;
@@ -340,20 +375,4 @@ int dist(Job &a, Job &b, int curT, int &outT) {
 
 int l1Dist(Job &a, Job &b) {
     return abs(a.x - b.x) + abs(a.y - b.y);
-}
-
-Job* Job::cur() {
-    if (shiftPos + 1 > SHIFT_SIZE(shiftIdx)) {
-        return &jobs[shifts[shiftIdx][1]];
-    } else {
-        return &jobs[shifts[shiftIdx][shiftPos + 1]];
-    }
-}
-
-Job* Job::from() {
-    if (shiftPos == 1) {
-        return &jobs[shifts[shiftIdx][SHIFT_SIZE(shiftIdx)]];
-    } else {
-        return &jobs[shifts[shiftIdx][shiftPos - 1]];
-    }
 }
