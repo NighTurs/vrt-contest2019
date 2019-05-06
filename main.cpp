@@ -7,7 +7,7 @@ using namespace std;
 #define IMPOSSIBLE_DIST ((int)-1e9)
 #define MAX_SHIFTS 40
 #define MAX_JOBS_PER_SHIFT 50
-#define NUM_CANDIDATES 5
+#define NUM_CANDIDATES 8
 #define MAX_K 3
 
 struct Job {
@@ -264,7 +264,9 @@ void recalc() {
         nVisited[res.end->idx] = res.nVisited;
         procFlag[corner->idx] = flagCt;
         procFlag[res.end->idx] = flagCt;
-        profitAll += res.profit;
+        if (res.profit > 0) {
+            profitAll += res.profit;
+        }
         nAll += res.nVisited;
         Job *cur = corner;
         Job *prev = cur;
@@ -443,7 +445,9 @@ int kOptGain() {
             }
             procFlag[crn->idx] = flagCt;
             procFlag[res.end->idx] = flagCt;
-            profitCur += res.profit;
+            if (res.profit > 0) {
+                profitCur += res.profit;
+            }
             nCur += res.nVisited;
         }
     }
@@ -454,7 +458,9 @@ int kOptGain() {
         if (corner->adjWithRepl(0) != corner && corner->adjWithRepl(1) != corner) {
             continue;
         }
-        profitCur += profit[corner->idx];
+        if (profit[corner->idx] > 0) {
+            profitCur += profit[corner->idx];
+        }
         nCur += nVisited[corner->idx];
         procFlag[corner->crn[0]->idx] = flagCt;
         procFlag[corner->crn[1]->idx] = flagCt;
