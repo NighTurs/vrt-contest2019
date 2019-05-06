@@ -4,10 +4,10 @@ using namespace std;
 
 #define MAX_JOBS 2000
 #define HIRE_COST 240
-#define IMPOSSIBLE_DIST -1
+#define IMPOSSIBLE_DIST ((int)-1e9)
 #define MAX_SHIFTS 40
 #define MAX_JOBS_PER_SHIFT 50
-#define NUM_CANDIDATES 15
+#define NUM_CANDIDATES 5
 #define MAX_K 3
 
 struct Job {
@@ -127,12 +127,9 @@ int main(int argc,  char** argv) {
         }
         greedyShifts(p);
         kOpt(p);
-        exit(0);
-        
         removeUnprofitableCycles(p);
-        // shiftsToWorkers(p);
-        // TODO: That is where I should assign jobs
-        shiftsToWorkersUsingFreeSpace(p);
+        shiftsToWorkers(p);
+        // shiftsToWorkersUsingFreeSpace(p);
     }
     if (argc > 1) {
         if (argv[1][0] == '1') {
@@ -189,6 +186,7 @@ void kOpt(int p) {
         }
         js[nJs++] = &jobs[i]; 
     }
+    corners.clear();
     for (int i = 0; i < MAX_SHIFTS; i++) {
         if (SHIFT_SIZE(i) == 0) {
             continue;
@@ -206,7 +204,6 @@ void kOpt(int p) {
         corners.insert(crn2);
     }
     recalc();
-    cout << nAll << " " << profitAll << endl;
     while (kOptStart(nJs, js)) {
         nChanges = 0;
         corners.clear();
@@ -222,7 +219,30 @@ void kOpt(int p) {
             }
         }
         recalc();
-        cout << nAll << " " << profitAll << endl;
+    }
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        shifts[i][0] = 0;
+    }
+    int shiftI = 0;
+    for (Job *corner : corners) {
+        if (corner != min(corner->crn[0], corner->crn[1])) {
+            continue;
+        }
+        Job *cur = travel(corner->crn[0], false).profit > travel(corner->crn[1], false).profit ? 
+            corner->crn[0] : corner->crn[1];
+        Job *prev = cur;
+        do {
+            shifts[shiftI][0]++;
+            shifts[shiftI][SHIFT_SIZE(shiftI)] = cur->idx;
+            if (cur->adj[0] == prev) {
+                prev = cur;
+                cur = cur->adj[1];
+            } else {
+                prev = cur;
+                cur = cur->adj[0];
+            }
+        } while (prev != cur);
+        shiftI++;
     }
 }
 
@@ -339,6 +359,9 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
     Job *j2 = j1->adj[replIdx];
     for (int i = 0; i < j2->nCand; i++) {
         Job *j3 = j2->cand[i];
+        if (j3->assigned) {
+            continue;
+        }
         // don't add what is already added
         if (j2->adj[0] == j3 || j2->adj[1] == j3 || j2->repl[0] == j3 || j2->repl[1] == j3) {
             continue;
@@ -372,13 +395,10 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
                 j4->repl[ri] = opt == 0 ? stJob : (z2 == NULL ? j4 : z2);
                 changes[nChanges++] = j4;
                 int gain = kOptGain();
-                nChanges--;
                 if (gain != IMPOSSIBLE_DIST && gain > 0) {
-                    if (profitAll == 63441) {
-                        kOptGain();
-                    }
                     return true;
                 }
+                nChanges--;
                 stJob->repl[stReplIdx] = z1;
                 j4->repl[ri] = z2;
             }
@@ -489,6 +509,9 @@ void shiftsToWorkersUsingFreeSpace(int p) {
     for (int i = 0; i < MAX_SHIFTS; i++) {
         if (SHIFT_SIZE(i) == 0) {
             continue;
+        }
+        for (int h = 1; h <= SHIFT_SIZE(i); h++) {
+            jobs[shifts[i][h]].assigned = true;
         }
         int curT, outT;
         int workerSt = nWorkers;
