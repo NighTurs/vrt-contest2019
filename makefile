@@ -4,5 +4,8 @@ main : main.cpp
 benchmark: main
 	./benchmark.sh | awk '{ sum += $$1 } END { print sum }'
 
+benchmark_small: main
+	./benchmark_small.sh
+
 analytics: main
 	./analytics.sh > analytics.csv
