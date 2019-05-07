@@ -7,7 +7,7 @@ using namespace std;
 #define IMPOSSIBLE_DIST ((int)-1e9)
 #define MAX_SHIFTS 40
 #define MAX_JOBS_PER_SHIFT 50
-#define NUM_CANDIDATES 8
+#define NUM_CANDIDATES 15
 #define MAX_K 3
 
 struct Job {
@@ -69,7 +69,7 @@ int nAll = 0;
 #define SHIFT_SIZE(x) (shifts[x][0])
 #define WORKER_SIZE(x) (workers[x][0].jobIdx)
 
-void candidates();
+void candidates(int p);
 
 void kOpt(int p);
 
@@ -104,7 +104,7 @@ int dist(Job &a, Job &b, int curT, int &outT);
 int l1Dist(Job &a, Job &b);
 
 int main(int argc,  char** argv) {
-
+    clock_t z = clock();
     ifstream cin(argv[2]);
     ios_base::sync_with_stdio(false);
     std::cin.tie(0);
@@ -119,17 +119,17 @@ int main(int argc,  char** argv) {
         j->idx = i;
         cin >> j->x >> j->y >> j->d >> j->p >> j->l >> j->r;
     }
-    candidates();
-
+    
     for (int p = 7; p >= 1; p--) {
         for (int i = 0; i < MAX_SHIFTS; i++) {
             shifts[i][0] = 0;
         }
         greedyShifts(p);
+        candidates(p);
         kOpt(p);
         removeUnprofitableCycles(p);
-        shiftsToWorkers(p);
-        // shiftsToWorkersUsingFreeSpace(p);
+        // shiftsToWorkers(p);
+        shiftsToWorkersUsingFreeSpace(p);
     }
     if (argc > 1) {
         if (argv[1][0] == '1') {
@@ -140,17 +140,21 @@ int main(int argc,  char** argv) {
     } else {
         outputTour();
     }
+    cout << "Total Time: " << (double)(clock() - z) / CLOCKS_PER_SEC << endl;
 }
 
-void candidates() {
+void candidates(int p) {
     auto cmpFunc = [](pair<int, Job*> a, pair<int, Job*> b) { return a.first < b.first; };
     priority_queue<pair<int, Job*>, vector<pair<int, Job*> >, decltype(cmpFunc)> q(cmpFunc);
 
     for (int i = 0; i < n; i++) {
         Job *job = &jobs[i];
+        if (job->p != p || job->assigned) {
+            continue;
+        }
         job->nCand = 0;
         for (int h = 0; h < n; h++) {
-            if (h == i || jobs[h].p != job->p) {
+            if (h == i || jobs[h].p != p || jobs[h].assigned) {
                 continue;
             }
             Job *to = &jobs[h];
@@ -219,6 +223,7 @@ void kOpt(int p) {
             }
         }
         recalc();
+        random_shuffle(js, js + nJs);
     }
     for (int i = 0; i < MAX_SHIFTS; i++) {
         shifts[i][0] = 0;
@@ -513,11 +518,13 @@ void greedyShifts(int p) {
 
 void shiftsToWorkersUsingFreeSpace(int p) {
     for (int i = 0; i < MAX_SHIFTS; i++) {
-        if (SHIFT_SIZE(i) == 0) {
-            continue;
-        }
         for (int h = 1; h <= SHIFT_SIZE(i); h++) {
             jobs[shifts[i][h]].assigned = true;
+        }
+    }
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        if (SHIFT_SIZE(i) == 0) {
+            continue;
         }
         int curT, outT;
         int workerSt = nWorkers;
@@ -539,7 +546,8 @@ void shiftsToWorkersUsingFreeSpace(int p) {
                 workers[j][WORKER_SIZE(j)].startT = curT - jobs[shifts[i][h]].d;
             }
         }
-        useFreeSpace(workerSt, workerEnd, __INT_MAX__ - 1, base);
+        // TODO : currently unprofitable
+        // useFreeSpace(workerSt, workerEnd, __INT_MAX__ - 1, base);
         nWorkers += p;
     }
 }
