@@ -12,6 +12,7 @@ using namespace std;
 
 struct Job {
     int idx;
+    int altIdx;
     int x, y, d, p, l, r;
     bool assigned = false;
     int nCand;
@@ -65,7 +66,9 @@ int nAll = 0;
 #define SHIFT_SIZE(x) (shifts[x][0])
 #define WORKER_SIZE(x) (workers[x][0].jobIdx)
 
-void candidates(int p);
+void candidates(int p, bool allowReverse = true, bool estimWait = true);
+
+void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait);
 
 void kOpt(int p);
 
@@ -139,7 +142,20 @@ int main(int argc, char **argv) {
     cout << "Total Time: " << (double)(clock() - z) / CLOCKS_PER_SEC << endl;
 }
 
-void candidates(int p) {
+void candidates(int p, bool allowReverse, bool estimWait) {
+    Job *cJobs[n];
+    int nJobs = 0;
+    for (int i = 0; i < n; i++) {
+        Job *job = &jobs[i];
+        if (job->p != p || job->assigned) {
+            continue;
+        }
+        cJobs[nJobs++] = job;
+    }
+    candidates(p, cJobs, nJobs, allowReverse, estimWait);
+}
+
+void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait) {
     auto cmpFunc = [](pair<int, Job *> a, pair<int, Job *> b) {
         return a.first < b.first;
     };
@@ -147,25 +163,24 @@ void candidates(int p) {
                    decltype(cmpFunc)>
         q(cmpFunc);
 
-    for (int i = 0; i < n; i++) {
-        Job *job = &jobs[i];
-        if (job->p != p || job->assigned) {
-            continue;
-        }
+    for (int i = 0; i < nJobs; i++) {
+        Job *job = cJobs[i];
         job->nCand = 0;
-        for (int h = 0; h < n; h++) {
-            if (h == i || jobs[h].p != p || jobs[h].assigned) {
+        for (int h = 0; h < nJobs; h++) {
+            if (h == i) {
                 continue;
             }
-            Job *to = &jobs[h];
+            Job *to = cJobs[h];
             int d = l1Dist(*job, *to);
-            d += min(
-                max(to->l - (job->l + job->d + d),
-                    (job->l + job->d + to->d + d) <= to->r ? 0
-                                                           : __INT_MAX__ - d),
-                max(job->l - (to->l + to->d + d),
-                    (to->l + job->d + to->d + d) <= job->r ? 0
-                                                           : __INT_MAX__ - d));
+            int rest = max(to->l - d - (estimWait ? job->l + job->d : job->r),
+                           (job->l + job->d + to->d + d) <= to->r ? 0
+                                                                  : __INT_MAX__ - d);
+            if (allowReverse) {
+                rest = min(rest, max(job->l - d - (estimWait ? to->l + to->d : to->r),
+                                     (to->l + job->d + to->d + d) <= job->r ? 0
+                                                                            : __INT_MAX__ - d));
+            }
+            d += rest;
 
             if (q.size() == NUM_CANDIDATES) {
                 if (q.top().first > d) {
@@ -489,42 +504,87 @@ int kOptGain() {
 }
 
 void greedyShifts(int p) {
-    Job *prev = &base;
-    bool visited[n]{false};
-    int shiftIdx = 0;
-    int shiftPos = 1;
-    int curT = 0, outT = 0;
-
+    bool visited[n];
+    fill(visited, visited + n, false);
+    int MAX_TIME = 800;
+    int shiftI = 0;
     while (true) {
-        int minT = __INT_MAX__;
-        Job *minJob = NULL;
+        Job *cJobs[n];
+        int cJobsN = 0;
         for (int i = 0; i < n; i++) {
-            Job *job = &jobs[i];
-            if (job->assigned || visited[job->idx] || job->p != p) {
+            if (visited[i] || jobs[i].p != p || jobs[i].assigned) {
                 continue;
             }
-            if (dist(*prev, jobs[i], curT, outT) != IMPOSSIBLE_DIST &&
-                outT < minT) {
-                minT = outT;
-                minJob = &jobs[i];
+            jobs[i].altIdx = cJobsN;
+            cJobs[cJobsN++] = &jobs[i];
+        }
+        if (cJobsN == 0) {
+            return;
+        }
+        candidates(p, cJobs, cJobsN, false, false);
+        int dp[MAX_TIME + 1][cJobsN][3];
+        fill(&(dp[0][0][0]), &(dp[0][0][0]) + (MAX_TIME + 1) * cJobsN * 3, -1);
+        int outT;
+        int maxNum;
+        int maxT, maxJ;
+        for (int i = 0; i < cJobsN; i++) {
+            dist(base, *cJobs[i], 0, outT);
+            outT -= cJobs[i]->d;
+            dp[outT][i][0] = 1;
+            maxNum = 1;
+            maxT = outT;
+            maxJ = i;
+        }
+        for (int i = 200; i <= MAX_TIME; i++) {
+            for (int h = 0; h < cJobsN; h++) {
+                if (dp[i][h][0] == -1) {
+                    continue;
+                }
+                flagCt2++;
+                int stTime = i;
+                int stJob = h;
+                do {
+                    procFlag2[cJobs[stJob]->idx] = flagCt2;
+                    int z = stTime;
+                    stTime = dp[stTime][stJob][1];
+                    stJob = dp[z][stJob][2];
+                } while (stTime != -1);
+
+                int finTime;
+                dist(*cJobs[h], *cJobs[h], i, finTime);
+                for (int j = 0; j < cJobs[h]->nCand; j++) {
+                    Job *to = cJobs[h]->cand[j];
+                    if (procFlag2[to->idx] == flagCt2) {
+                        continue;
+                    }
+                    int d = dist(*cJobs[h], *to, finTime, outT);
+                    if (d == IMPOSSIBLE_DIST) {
+                        continue;
+                    }
+                    outT = finTime + l1Dist(*cJobs[h], *to);
+                    int toIdx = to->altIdx;
+                    if (dp[outT][toIdx][0] < dp[i][h][0] + 1) {
+                        dp[outT][toIdx][0] = dp[i][h][0] + 1;
+                        dp[outT][toIdx][1] = i;
+                        dp[outT][toIdx][2] = h;
+                        if (dp[outT][toIdx][0] > maxNum) {
+                            maxNum = dp[outT][toIdx][0];
+                            maxT = outT;
+                            maxJ = toIdx;
+                        }
+                    }
+                }
             }
         }
-        if (minT == __INT_MAX__ && prev == &base) {
-            break;
-        }
-        if (minT == __INT_MAX__) {
-            shiftIdx++;
-            shiftPos = 1;
-            prev = &base;
-            curT = 0;
-            continue;
-        }
-        shifts[shiftIdx][shiftPos] = minJob->idx;
-        shifts[shiftIdx][0] = shiftPos;
-        visited[minJob->idx] = true;
-        shiftPos++;
-        curT = minT;
-        prev = minJob;
+        shifts[shiftI][0] = maxNum;
+        do {
+            shifts[shiftI][maxNum--] = cJobs[maxJ]->idx;
+            visited[cJobs[maxJ]->idx] = true;
+            int z = maxT;
+            maxT = dp[maxT][maxJ][1];
+            maxJ = dp[z][maxJ][2];
+        } while (maxT != -1);
+        shiftI++;
     }
 }
 
@@ -673,7 +733,8 @@ void removeUnprofitableCycles(int p) {
 }
 
 int evaluate() {
-    bool visited[n]{false};
+    bool visited[n];
+    fill(visited, visited + n, false);
     int cost = 0;
     for (int i = 0; i < nWorkers; i++) {
         cost -= HIRE_COST;
