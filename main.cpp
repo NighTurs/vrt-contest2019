@@ -526,12 +526,14 @@ void greedyShifts(int p) {
         fill(&(dp[0][0][0]), &(dp[0][0][0]) + (MAX_TIME + 1) * cJobsN * 3, -1);
         int outT;
         int maxNum;
+        int minEndT;
         int maxT, maxJ;
         for (int i = 0; i < cJobsN; i++) {
             dist(base, *cJobs[i], 0, outT);
             outT -= cJobs[i]->d;
             dp[outT][i][0] = 1;
             maxNum = 1;
+            dist(*cJobs[i], base, outT + cJobs[i]->d, minEndT);
             maxT = outT;
             maxJ = i;
         }
@@ -567,8 +569,12 @@ void greedyShifts(int p) {
                         dp[outT][toIdx][0] = dp[i][h][0] + 1;
                         dp[outT][toIdx][1] = i;
                         dp[outT][toIdx][2] = h;
-                        if (dp[outT][toIdx][0] > maxNum) {
+                        int endT;
+                        dist(*to, *to, outT, endT);
+                        endT += l1Dist(*to, base);
+                        if (dp[outT][toIdx][0] > maxNum || (dp[outT][toIdx][0] == maxNum && endT < minEndT)) {
                             maxNum = dp[outT][toIdx][0];
+                            minEndT = endT;
                             maxT = outT;
                             maxJ = toIdx;
                         }
