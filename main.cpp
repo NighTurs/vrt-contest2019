@@ -7,8 +7,11 @@ using namespace std;
 #define IMPOSSIBLE_DIST ((int)-1e9)
 #define MAX_SHIFTS 80
 #define MAX_JOBS_PER_SHIFT 50
-#define NUM_CANDIDATES 15
-#define MAX_K 3
+#define MAX_NUM_CANDIDATES 20
+
+int NUM_CANDIDATES = 6;
+int MAX_K = 5;
+int CONT_MAX_K = 4;
 
 struct Job {
     int idx;
@@ -16,7 +19,7 @@ struct Job {
     int x, y, d, p, l, r;
     bool assigned = false;
     int nCand;
-    Job *cand[NUM_CANDIDATES];
+    Job *cand[MAX_NUM_CANDIDATES];
     Job *adj[2];
     Job *repl[2];
     Job *crn[2];
@@ -115,6 +118,31 @@ int main(int argc, char **argv) {
 
     cin >> n;
     n--;
+    if (n < 600) {
+        NUM_CANDIDATES = 7;
+        MAX_K = 4;
+        CONT_MAX_K = 4;
+    } else if (n < 800) {
+        NUM_CANDIDATES = 6;
+        MAX_K = 4;
+        CONT_MAX_K = 4;
+    } else if (n < 1100) {
+        NUM_CANDIDATES = 5;
+        MAX_K = 4;
+        CONT_MAX_K = 4;
+    } else if (n < 1400) {
+        NUM_CANDIDATES = 8;
+        MAX_K = 4;
+        CONT_MAX_K = 0;
+    } else if (n < 1700) {
+        NUM_CANDIDATES = 7;
+        MAX_K = 4;
+        CONT_MAX_K = 0;
+    } else {
+        NUM_CANDIDATES = 6;
+        MAX_K = 4;
+        CONT_MAX_K = 0;
+    }
 
     cin >> base.x >> base.y >> base.d >> base.p >> base.l >> base.r;
 
@@ -407,6 +435,35 @@ bool kOptStart(int nJs, Job *js[]) {
     return false;
 }
 
+bool kOptContinue(int k) {
+    Job *j1 = changes[0]->crn[0];
+    Job *prev = j1;
+    do {
+        if (j1->repl[0] == NULL && j1->repl[1] == NULL) {
+            for (int i = 0; i < 2; i++) {
+                if (j1->isEnding && i == 0) {
+                    continue;
+                }
+                j1->repl[i] = j1;
+                changes[nChanges++] = j1;
+                if (kOptRec(j1, i, j1, i, MAX_K)) {
+                    return true;
+                }
+                nChanges--;
+                j1->repl[i] = NULL;
+            }
+        }
+        if (j1->adj[0] == prev) {
+            prev = j1;
+            j1 = j1->adj[1];
+        } else {
+            prev = j1;
+            j1 = j1->adj[0];
+        }
+    } while (prev != j1);
+    return false;
+}
+
 bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
     Job *j2 = j1->adj[replIdx];
     for (int i = 0; i < j2->nCand; i++) {
@@ -451,6 +508,9 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
                 changes[nChanges++] = j4;
                 int gain = kOptGain();
                 if (gain != IMPOSSIBLE_DIST && gain > 0) {
+                    return true;
+                }
+                if (CONT_MAX_K > k + 1 && kOptContinue(k + 1)) {
                     return true;
                 }
                 nChanges--;
