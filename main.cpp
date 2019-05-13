@@ -112,8 +112,6 @@ int evaluate();
 
 void outputTour();
 
-void outputAnalytics();
-
 int dist(Job &a, Job &b, int curT, int &outT);
 
 int l1Dist(Job &a, Job &b);
@@ -162,7 +160,7 @@ int main(int argc, char **argv) {
     } else {
         outputTour();
     }
-    cout << "Total Time: " << (double)(clock() - stClock) / CLOCKS_PER_SEC << endl;
+    // cout << "Total Time: " << (double)(clock() - stClock) / CLOCKS_PER_SEC << endl;
 }
 
 void candidates(int p, int numCand, bool allowReverse, bool estimWait) {
