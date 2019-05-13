@@ -7,12 +7,13 @@ using namespace std;
 #define IMPOSSIBLE_DIST ((int)-1e9)
 #define MAX_SHIFTS 80
 #define MAX_JOBS_PER_SHIFT 50
-#define MAX_NUM_CANDIDATES 20
+#define MAX_NUM_CANDIDATES 40
 #define ANT_NUM_CANDIDATES 15
+#define GREEDY_NUM_CANDIDATES 15
+#define MAX_TIME_USE 14.5
 
-int NUM_CANDIDATES = 6;
-int MAX_K = 5;
-int CONT_MAX_K = 4;
+int MAX_K = 4;
+int CONT_MAX_K = 0;
 
 struct Job {
     int idx;
@@ -72,6 +73,7 @@ int flagCt2 = 0;
 int profitAll = 0;
 int nAll = 0;
 int nEndings = 0;
+clock_t stClock;
 
 #define SHIFT_SIZE(x) (shifts[x][0])
 #define WORKER_SIZE(x) (workers[x][0].jobIdx)
@@ -80,15 +82,15 @@ void candidates(int p, int numCand, bool allowReverse = true, bool estimWait = t
 
 void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait, int numCand);
 
-void kOpt(int p);
+void kOpt(int p, clock_t clockLimit);
 
 void recalc();
 
 TravelRes travel(Job *st, bool tryOpposite = true);
 
-bool kOptStart(int nJs, Job *js[]);
+bool kOptStart(int nJs, Job *js[], int candLimit, clock_t clockLimit);
 
-bool kOptRec(Job *stJob, int stReplIdx, Job *job, int replIdx, int k);
+bool kOptRec(Job *stJob, int stReplIdx, Job *job, int replIdx, int k, int candLimit);
 
 int kOptGain();
 
@@ -117,36 +119,16 @@ int dist(Job &a, Job &b, int curT, int &outT);
 int l1Dist(Job &a, Job &b);
 
 int main(int argc, char **argv) {
-    clock_t z = clock();
+    stClock = clock();
     ifstream cin(argv[2]);
     ios_base::sync_with_stdio(false);
     std::cin.tie(0);
 
     cin >> n;
     n--;
-    if (n < 600) {
-        NUM_CANDIDATES = 7;
-        MAX_K = 4;
+    if (n < 1100) {
         CONT_MAX_K = 4;
-    } else if (n < 800) {
-        NUM_CANDIDATES = 6;
-        MAX_K = 4;
-        CONT_MAX_K = 4;
-    } else if (n < 1100) {
-        NUM_CANDIDATES = 5;
-        MAX_K = 4;
-        CONT_MAX_K = 4;
-    } else if (n < 1400) {
-        NUM_CANDIDATES = 8;
-        MAX_K = 4;
-        CONT_MAX_K = 0;
-    } else if (n < 1700) {
-        NUM_CANDIDATES = 7;
-        MAX_K = 4;
-        CONT_MAX_K = 0;
     } else {
-        NUM_CANDIDATES = 6;
-        MAX_K = 4;
         CONT_MAX_K = 0;
     }
 
@@ -165,8 +147,8 @@ int main(int argc, char **argv) {
         collectEndings(p);
         greedyShifts(p);
         mmas(p);
-        candidates(p, NUM_CANDIDATES);
-        kOpt(p);
+        candidates(p, MAX_NUM_CANDIDATES);
+        kOpt(p, stClock + MAX_TIME_USE * CLOCKS_PER_SEC / 7 * (8 - p));
         removeUnprofitableCycles(p);
         // shiftsToWorkers(p);
         shiftsToWorkersUsingFreeSpace(p);
@@ -180,7 +162,7 @@ int main(int argc, char **argv) {
     } else {
         outputTour();
     }
-    cout << "Total Time: " << (double)(clock() - z) / CLOCKS_PER_SEC << endl;
+    cout << "Total Time: " << (double)(clock() - stClock) / CLOCKS_PER_SEC << endl;
 }
 
 void candidates(int p, int numCand, bool allowReverse, bool estimWait) {
@@ -250,7 +232,7 @@ void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWai
     }
 }
 
-void kOpt(int p) {
+void kOpt(int p, clock_t clockLimit) {
     Job *js[n];
     int nJs = 0;
     for (int i = 0; i < n + nEndings; i++) {
@@ -280,7 +262,17 @@ void kOpt(int p) {
         corners.insert(&jobs[i]);
     }
     recalc();
-    while (kOptStart(nJs, js)) {
+    int nCand = 6;
+    while (true) {
+        bool res = kOptStart(nJs, js, nCand, clockLimit);
+        if (!res) {
+            if (clock() <= clockLimit) {
+                nCand++;
+                continue;
+            } else {
+                break;
+            }
+        }
         nChanges = 0;
         corners.clear();
         for (int i = 0; i < nJs; i++) {
@@ -423,7 +415,7 @@ TravelRes travel(Job *st, bool tryOpposite) {
     }
 }
 
-bool kOptStart(int nJs, Job *js[]) {
+bool kOptStart(int nJs, Job *js[], int candLimit, clock_t clockLimit) {
     for (int i = 0; i < nJs; i++) {
         Job *j = js[i];
         for (int h = 0; h < 2; h++) {
@@ -432,17 +424,20 @@ bool kOptStart(int nJs, Job *js[]) {
             }
             j->repl[h] = j;
             changes[nChanges++] = j;
-            if (kOptRec(j, h, j, h, 2)) {
+            if (kOptRec(j, h, j, h, 2, candLimit)) {
                 return true;
             }
             nChanges--;
             j->repl[h] = NULL;
         }
+        if (clock() > clockLimit) {
+            return false;
+        }
     }
     return false;
 }
 
-bool kOptContinue(int k) {
+bool kOptContinue(int k, int candLimit) {
     Job *j1 = changes[0]->crn[0];
     Job *prev = j1;
     do {
@@ -453,7 +448,7 @@ bool kOptContinue(int k) {
                 }
                 j1->repl[i] = j1;
                 changes[nChanges++] = j1;
-                if (kOptRec(j1, i, j1, i, MAX_K)) {
+                if (kOptRec(j1, i, j1, i, MAX_K, candLimit)) {
                     return true;
                 }
                 nChanges--;
@@ -471,9 +466,9 @@ bool kOptContinue(int k) {
     return false;
 }
 
-bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
+bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k, int candLimit) {
     Job *j2 = j1->adj[replIdx];
-    for (int i = 0; i < j2->nCand; i++) {
+    for (int i = 0; i < min(j2->nCand, candLimit); i++) {
         Job *j3 = j2->cand[i];
         if (j3->assigned) {
             continue;
@@ -517,7 +512,7 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
                 if (gain != IMPOSSIBLE_DIST && gain > 0) {
                     return true;
                 }
-                if (CONT_MAX_K > k + 1 && kOptContinue(k + 1)) {
+                if (CONT_MAX_K > k + 1 && kOptContinue(k + 1, candLimit)) {
                     return true;
                 }
                 nChanges--;
@@ -526,7 +521,7 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *j1, int replIdx, int k) {
             }
 
             if (j4->repl[ri] == NULL && MAX_K > k && !isEnding &&
-                kOptRec(stJob, stReplIdx, j3, h, k + 1)) {
+                kOptRec(stJob, stReplIdx, j3, h, k + 1, candLimit)) {
                 return true;
             }
             j3->repl[h] = NULL;
@@ -612,7 +607,7 @@ void greedyShifts(int p) {
         if (cJobsN == 0) {
             return;
         }
-        candidates(p, cJobs, cJobsN, false, false, NUM_CANDIDATES);
+        candidates(p, cJobs, cJobsN, false, false, GREEDY_NUM_CANDIDATES);
         int dp[MAX_TIME + 1][cJobsN][3];
         fill(&(dp[0][0][0]), &(dp[0][0][0]) + (MAX_TIME + 1) * cJobsN * 3, -1);
         int outT;
@@ -887,7 +882,6 @@ void mmas(int p) {
                 }
             }
         }
-        
         double incFerAdj = (1.0 / minLoss) / (1 - decay);
         for (int i = 0; i < MAX_SHIFTS; i++) {
             if (shiftsLM[i][0] == 0) {
