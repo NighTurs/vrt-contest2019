@@ -8,6 +8,7 @@ using namespace std;
 #define MAX_SHIFTS 80
 #define MAX_JOBS_PER_SHIFT 50
 #define MAX_NUM_CANDIDATES 20
+#define ANT_NUM_CANDIDATES 15
 
 int NUM_CANDIDATES = 6;
 int MAX_K = 5;
@@ -23,6 +24,7 @@ struct Job {
     Job *adj[2];
     Job *repl[2];
     Job *crn[2];
+    double fer[MAX_NUM_CANDIDATES];
     bool isEnding = false;
     int stWorker;
 
@@ -54,6 +56,8 @@ int n;
 Job base;
 Job jobs[MAX_JOBS];
 int shifts[MAX_SHIFTS][MAX_JOBS_PER_SHIFT];
+int shiftsLM[MAX_SHIFTS][MAX_JOBS_PER_SHIFT];
+int shiftsGM[MAX_SHIFTS][MAX_JOBS_PER_SHIFT];
 int nWorkers = 0;
 Work workers[MAX_SHIFTS * 7 * 7][MAX_JOBS_PER_SHIFT];
 unordered_set<Job *> corners;
@@ -72,9 +76,9 @@ int nEndings = 0;
 #define SHIFT_SIZE(x) (shifts[x][0])
 #define WORKER_SIZE(x) (workers[x][0].jobIdx)
 
-void candidates(int p, bool allowReverse = true, bool estimWait = true);
+void candidates(int p, int numCand, bool allowReverse = true, bool estimWait = true);
 
-void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait);
+void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait, int numCand);
 
 void kOpt(int p);
 
@@ -89,6 +93,8 @@ bool kOptRec(Job *stJob, int stReplIdx, Job *job, int replIdx, int k);
 int kOptGain();
 
 void greedyShifts(int p);
+
+void mmas(int p);
 
 void shiftsToWorkersUsingFreeSpace(int p);
 
@@ -158,7 +164,8 @@ int main(int argc, char **argv) {
         }
         collectEndings(p);
         greedyShifts(p);
-        candidates(p);
+        mmas(p);
+        candidates(p, NUM_CANDIDATES);
         kOpt(p);
         removeUnprofitableCycles(p);
         // shiftsToWorkers(p);
@@ -176,7 +183,7 @@ int main(int argc, char **argv) {
     cout << "Total Time: " << (double)(clock() - z) / CLOCKS_PER_SEC << endl;
 }
 
-void candidates(int p, bool allowReverse, bool estimWait) {
+void candidates(int p, int numCand, bool allowReverse, bool estimWait) {
     Job *cJobs[n];
     int nJobs = 0;
     for (int i = 0; i < n + nEndings; i++) {
@@ -186,10 +193,10 @@ void candidates(int p, bool allowReverse, bool estimWait) {
         }
         cJobs[nJobs++] = job;
     }
-    candidates(p, cJobs, nJobs, allowReverse, estimWait);
+    candidates(p, cJobs, nJobs, allowReverse, estimWait, numCand);
 }
 
-void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait) {
+void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWait, int numCand) {
     auto cmpFunc = [](pair<int, Job *> a, pair<int, Job *> b) {
         return a.first < b.first;
     };
@@ -224,7 +231,7 @@ void candidates(int p, Job *cJobs[], int nJobs, bool allowReverse, bool estimWai
                 continue;
             }
 
-            if (q.size() == NUM_CANDIDATES) {
+            if (q.size() == numCand) {
                 if (q.top().first > d) {
                     q.push({d, to});
                     q.pop();
@@ -605,7 +612,7 @@ void greedyShifts(int p) {
         if (cJobsN == 0) {
             return;
         }
-        candidates(p, cJobs, cJobsN, false, false);
+        candidates(p, cJobs, cJobsN, false, false, NUM_CANDIDATES);
         int dp[MAX_TIME + 1][cJobsN][3];
         fill(&(dp[0][0][0]), &(dp[0][0][0]) + (MAX_TIME + 1) * cJobsN * 3, -1);
         int outT;
@@ -700,6 +707,218 @@ void greedyShifts(int p) {
         }
         shiftI++;
     }
+}
+
+Job *randomChoice(double cum[], Job *js[], int N) {
+    double f = (double)rand() / RAND_MAX * cum[N];
+    for (int i = 1; i < N; i++) {
+        if (cum[i] >= f) {
+            return js[i];
+        }
+    }
+    return js[N];
+}
+
+int calcShiftLoss() {
+    flagCt++;
+    int loss = 0;
+    int outT;
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        if (SHIFT_SIZE(i) == 0) {
+            continue;
+        }
+        Job *prev = &base;
+        Job *cur = &jobs[shifts[i][1]];
+        int st = 2;
+        if (cur->isEnding) {
+            st = 3;
+            prev = cur;
+            cur = &jobs[shifts[i][2]];
+            procFlag[prev->idx] = flagCt;
+        }
+        int curT;
+        loss += dist(*prev, *cur, prev->l, curT);
+        for (int h = st; h <= SHIFT_SIZE(i); h++) {
+            Job *from = &jobs[shifts[i][h - 1]];
+            Job *to = &jobs[shifts[i][h]];
+            loss += dist(*from, *to, curT, outT);
+            curT = outT;
+        }
+        loss += dist(jobs[shifts[i][SHIFT_SIZE(i)]], base, curT, outT);
+    }
+    for (int i = n; i < n + nEndings; i++) {
+        if (procFlag[i] != flagCt) {
+            loss += dist(jobs[i], base, jobs[i].l, outT);
+        }
+    }
+    return loss;
+}
+
+void cpyShifts(int a[MAX_SHIFTS][MAX_JOBS_PER_SHIFT], int b[MAX_SHIFTS][MAX_JOBS_PER_SHIFT]) {
+    for (int i = 0; i < MAX_SHIFTS; i++) {
+        for (int h = 0; h <= a[i][0]; h++) {
+            b[i][h] = a[i][h];
+        }
+    }
+}
+
+void mmas(int p) {
+    double decay = 0.2;
+    double a = 1;
+    double b = 2;
+    int m = 25;
+    int nIters = 200;
+    Job *cJobs[n];
+    int cJobsN = 0;
+    for (int i = 0; i < n; i++) {
+        if (jobs[i].p != p || jobs[i].assigned) {
+            continue;
+        }
+        jobs[i].altIdx = cJobsN;
+        cJobs[cJobsN++] = &jobs[i];
+    }
+    candidates(p, cJobs, cJobsN, false, false, ANT_NUM_CANDIDATES);
+    int curBest = calcShiftLoss();
+    cpyShifts(shifts, shiftsGM);
+    double rmax = (1.0 / decay) * (1.0 / curBest);
+    double rmin = rmax / 2 / cJobsN;
+    for (int i = 0; i < cJobsN; i++) {
+        for (int h = 0; h < cJobs[i]->nCand; h++) {
+            cJobs[i]->fer[h] = rmax;
+        }
+    }
+    double rInit[cJobsN];
+    Job *stJob[cJobsN];
+    int outT;
+    for (int i = 0; i < cJobsN; i++) {
+        rInit[i] = rmax;
+        stJob[i] = &base;
+        int minWait = __INT_MAX__;
+        Job *job = cJobs[i];
+        for (int h = n; h < n + nEndings; h++) {
+            int d = dist(jobs[h], *job, jobs[h].l, outT);
+            if (d == IMPOSSIBLE_DIST) {
+                continue;
+            }
+            if (outT - jobs[h].l < minWait) {
+                minWait = outT - jobs[h].l;
+                stJob[i] = &jobs[h];
+            }
+        }
+    }
+    double choiceCum[cJobsN + 1];
+    choiceCum[0] = 0;
+    Job *choiceJob[cJobsN + 1];
+    int choiceN;
+
+    for (int iter = 0; iter < nIters; iter++) {
+        int minLoss = __INT_MAX__;
+        for (int ant = 0; ant < m; ant++) {
+            flagCt++;
+            int visitedCt = 0;
+            int shiftI = 0;
+            for (int i = 0; i < MAX_SHIFTS; i++) {
+                shifts[i][0] = 0;
+            }
+            while (visitedCt != cJobsN) {
+                choiceN = 0;
+                for (int i = 0; i < cJobsN; i++) {
+                    Job *job = cJobs[i];
+                    Job *st = stJob[i];
+                    if (procFlag[job->idx] == flagCt) {
+                        continue;
+                    }
+                    if (st != &base && procFlag[st->idx] == flagCt) {
+                        st = &base;
+                    }
+                    dist(*st, *job, st->l, outT);
+                    int d = outT - (st == &base ? 200 : st->l) + 1;
+                    choiceN++;
+                    choiceJob[choiceN] = job;
+                    choiceCum[choiceN] = choiceCum[choiceN - 1] + pow(1.0 / d, b) * pow(rInit[i], a);
+                }
+                Job *cur = randomChoice(choiceCum, choiceJob, choiceN);
+                Job *prev = stJob[cur->altIdx];
+                if (prev != &base && procFlag[prev->idx] == flagCt) {
+                    prev = &base;
+                }
+                if (prev != &base) {
+                    shifts[shiftI][0] = 1;
+                    shifts[shiftI][1] = prev->idx;
+                    procFlag[prev->idx] = flagCt;
+                }
+                int curT = prev->l;
+                while (true) {
+                    visitedCt++;
+                    shifts[shiftI][0]++;
+                    shifts[shiftI][SHIFT_SIZE(shiftI)] = cur->idx;
+                    procFlag[cur->idx] = flagCt;
+                    dist(*prev, *cur, curT, outT);
+                    curT = outT;
+                    choiceN = 0;
+                    for (int i = 0; i < cur->nCand; i++) {
+                        Job *to = cur->cand[i];
+                        if (procFlag[to->idx] == flagCt) {
+                            continue;
+                        }
+                        int d = dist(*cur, *to, curT, outT);
+                        if (d == IMPOSSIBLE_DIST) {
+                            continue;
+                        }
+                        choiceN++;
+                        choiceJob[choiceN] = to;
+                        choiceCum[choiceN] = choiceCum[choiceN - 1] + pow(1.0 / (outT - curT), b) * pow(cur->fer[i], a);
+                    }
+                    if (choiceN == 0) {
+                        break;
+                    }
+                    prev = cur;
+                    cur = randomChoice(choiceCum, choiceJob, choiceN);
+                }
+                shiftI++;
+            }
+            int loss = calcShiftLoss();
+            if (minLoss > loss) {
+                minLoss = loss;
+                cpyShifts(shifts, shiftsLM);
+                if (minLoss < curBest) {
+                    curBest = minLoss;
+                    cpyShifts(shiftsLM, shiftsGM);
+                }
+            }
+        }
+        
+        double incFerAdj = (1.0 / minLoss) / (1 - decay);
+        for (int i = 0; i < MAX_SHIFTS; i++) {
+            if (shiftsLM[i][0] == 0) {
+                continue;
+            }
+            Job *cur = &jobs[shiftsLM[i][1]];
+            int st = 2;
+            if (cur->isEnding) {
+                st = 3;
+                cur = &jobs[shiftsLM[i][2]];
+            }
+            rInit[cur->altIdx] += incFerAdj;
+            for (int h = st; h <= shiftsLM[i][0]; h++) {
+                Job *from = &jobs[shiftsLM[i][h - 1]];
+                Job *to = &jobs[shiftsLM[i][h]];
+                for (int j = 0; j < from->nCand; j++) {
+                    if (from->cand[j] == to) {
+                        from->fer[j] += incFerAdj;
+                        break;
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < cJobsN; i++) {
+            rInit[i] = max(min(rInit[i] * (1 - decay), rmax), rmin);
+            for (int h = 0; h < cJobs[i]->nCand; h++) {
+                cJobs[i]->fer[h] = max(min(cJobs[i]->fer[h] * (1 - decay), rmax), rmin);
+            }
+        }
+    }
+    cpyShifts(shiftsGM, shifts);
 }
 
 void shiftsToWorkersUsingFreeSpace(int p) {
